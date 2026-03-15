@@ -1,0 +1,70 @@
+services:
+  # SMTP Server - Receives emails
+  smtp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.smtp
+    container_name: 24mail-smtp
+    ports:
+      - "25:25"
+    volumes:
+      - mailstore:/app/mailstore
+    environment:
+      - DATABASE_URL=/app/data/db.sqlite
+      - MAIL_STORAGE_PATH=/app/mailstore
+    depends_on:
+      - api
+    networks:
+      - mailnetwork
+    restart: unless-stopped
+
+  # API Server - FastAPI backend
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: 24mail-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - mailstore:/app/mailstore
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=/app/data/db.sqlite
+      - MAIL_STORAGE_PATH=/app/mailstore
+      - API_KEY=${API_KEY:-changeme}
+      - MAIL_EXPIRY_HOURS=${MAIL_EXPIRY_HOURS:-24}
+      - CF_API_TOKEN=${CF_API_TOKEN:-}
+      - CF_API_EMAIL=${CF_API_EMAIL:-}
+      - DOMAIN=${DOMAIN:-mail.local}
+      - API_DOMAIN=${API_DOMAIN:-api.mail.local}
+      - DMARC_REPORT_EMAIL=${DMARC_REPORT_EMAIL:-dmarc-reports}
+      - SERVER_IP=${SERVER_IP:-127.0.0.1}
+    networks:
+      - mailnetwork
+    restart: unless-stopped
+
+  # Frontend - React UI
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: 24mail-frontend
+    ports:
+      - "8080:80"
+    environment:
+      - VITE_API_URL=${API_DOMAIN}
+      - VITE_DEFAULT_DOMAIN=${DOMAIN}
+    depends_on:
+      - api
+    networks:
+      - mailnetwork
+    restart: unless-stopped
+
+networks:
+  mailnetwork:
+    driver: bridge
+
+volumes:
+  mailstore:
+    driver: local
