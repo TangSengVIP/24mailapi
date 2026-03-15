@@ -296,6 +296,17 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-dark-800 rounded-lg text-dark-400 text-sm">
+              <span className="text-dark-500">API:</span>
+              <code className="text-primary-400">{API_URL}</code>
+              <button
+                onClick={() => copyToClipboard(API_URL)}
+                className="text-dark-500 hover:text-primary-400 transition-colors"
+                title="复制 API 地址"
+              >
+                <Copy size={14} />
+              </button>
+            </div>
             <button
               onClick={fetchMailboxes}
               className="p-2 rounded-lg bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700 transition-colors"
