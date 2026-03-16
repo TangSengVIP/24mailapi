@@ -50,13 +50,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - VITE_API_URL=https://api.mail.iplc.tv/api
+        - VITE_API_URL=https://api.mail.iplc.tv
         - VITE_DEFAULT_DOMAIN=mail.iplc.tv
     container_name: 24mail-frontend
     ports:
       - "8080:80"
     environment:
-      - VITE_API_URL=https://api.mail.iplc.tv/api
+      - VITE_API_URL=https://api.mail.iplc.tv
       - VITE_DEFAULT_DOMAIN=${DOMAIN}
     depends_on:
       - api
