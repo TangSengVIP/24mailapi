@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Plus, Trash2, RefreshCw, Settings, ExternalLink, Copy, Check, Eye, EyeOff, AlertCircle, Clock, Inbox, X } from 'lucide-react'
+import { Mail, Plus, Trash2, RefreshCw, Settings, ExternalLink, Copy, Check, Eye, EyeOff, AlertCircle, Clock, Inbox, X, FileText } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -23,6 +23,11 @@ function App() {
   // Domain selection mode for mailbox creation
   const [domainSelectionMode, setDomainSelectionMode] = useState('default')
   const [specificDomain, setSpecificDomain] = useState('')
+
+  // Logs state
+  const [logs, setLogs] = useState([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logFilter, setLogFilter] = useState('all')
   
   // Toast notifications
   const [toast, setToast] = useState(null)
@@ -37,6 +42,7 @@ function App() {
       setIsConfigured(true)
       fetchMailboxes()
       fetchDomains()
+      fetchLogs()
     }
   }
 
@@ -69,6 +75,27 @@ function App() {
       }
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const fetchLogs = async () => {
+    if (!apiKey) return
+    setLogsLoading(true)
+    try {
+      const url = logFilter === 'all'
+        ? `${API_URL}/api/logs?limit=100`
+        : `${API_URL}/api/logs?limit=100&event_type=${logFilter}`
+      const res = await fetch(url, {
+        headers: { 'X-API-Key': apiKey }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setLogs(data)
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLogsLoading(false)
     }
   }
 
@@ -222,6 +249,15 @@ function App() {
     }
   }, [selectedMailbox])
 
+  // Auto-refresh logs when filter changes
+  useEffect(() => {
+    if (isConfigured) {
+      fetchLogs()
+      const interval = setInterval(fetchLogs, 5000)
+      return () => clearInterval(interval)
+    }
+  }, [logFilter, isConfigured])
+
   if (!isConfigured) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -327,6 +363,7 @@ function App() {
           {[
             { id: 'mailboxes', label: '邮箱管理', icon: Inbox },
             { id: 'domains', label: '域名管理', icon: ExternalLink },
+            { id: 'logs', label: '系统日志', icon: FileText },
           ].map(tab => (
             <button
               key={tab.id}
@@ -568,6 +605,93 @@ function App() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div className="lg:col-span-3 glass rounded-2xl p-6 animate-fadeIn">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-display text-xl font-semibold text-white">系统日志</h2>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={logFilter}
+                    onChange={(e) => setLogFilter(e.target.value)}
+                    className="bg-dark-800 border border-dark-600 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-primary-500"
+                  >
+                    <option value="all">所有日志</option>
+                    <option value="mailbox_created">邮箱创建</option>
+                    <option value="mailbox_deleted">邮箱删除</option>
+                    <option value="domain_added">域名添加</option>
+                    <option value="domain_deleted">域名删除</option>
+                    <option value="email_received">收到邮件</option>
+                    <option value="error">错误</option>
+                  </select>
+                  <button
+                    onClick={fetchLogs}
+                    className="p-2 text-dark-400 hover:text-white hover:bg-dark-700 rounded-lg transition-colors"
+                  >
+                    <RefreshCw size={18} className={logsLoading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-dark-900 rounded-xl border border-dark-700 overflow-hidden">
+                {logsLoading && logs.length === 0 ? (
+                  <div className="p-8 text-center text-dark-400">加载中...</div>
+                ) : logs.length === 0 ? (
+                  <div className="p-8 text-center text-dark-400">暂无日志</div>
+                ) : (
+                  <div className="max-h-[500px] overflow-y-auto">
+                    <table className="w-full">
+                      <thead className="bg-dark-800 sticky top-0">
+                        <tr>
+                          <th className="text-left text-dark-400 text-xs font-medium px-4 py-3">时间</th>
+                          <th className="text-left text-dark-400 text-xs font-medium px-4 py-3">类型</th>
+                          <th className="text-left text-dark-400 text-xs font-medium px-4 py-3">消息</th>
+                          <th className="text-left text-dark-400 text-xs font-medium px-4 py-3">详情</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-dark-800">
+                        {logs.map((log) => (
+                          <tr key={log.id} className="hover:bg-dark-800/50 transition-colors">
+                            <td className="px-4 py-3 text-dark-400 text-sm whitespace-nowrap">
+                              {new Date(log.created_at).toLocaleString('zh-CN', {
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                              })}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium ${
+                                log.event_type === 'mailbox_created' ? 'bg-green-500/20 text-green-400' :
+                                log.event_type === 'mailbox_deleted' ? 'bg-red-500/20 text-red-400' :
+                                log.event_type === 'domain_added' ? 'bg-blue-500/20 text-blue-400' :
+                                log.event_type === 'domain_deleted' ? 'bg-orange-500/20 text-orange-400' :
+                                log.event_type === 'email_received' ? 'bg-purple-500/20 text-purple-400' :
+                                log.event_type === 'error' ? 'bg-red-500/20 text-red-400' :
+                                'bg-dark-700 text-dark-400'
+                              }`}>
+                                {log.event_type === 'mailbox_created' && '创建邮箱'}
+                                {log.event_type === 'mailbox_deleted' && '删除邮箱'}
+                                {log.event_type === 'domain_added' && '添加域名'}
+                                {log.event_type === 'domain_deleted' && '删除域名'}
+                                {log.event_type === 'email_received' && '收到邮件'}
+                                {log.event_type === 'error' && '错误'}
+                                {log.event_type === 'dns_configured' && 'DNS配置'}
+                                {log.event_type === 'api_request' && 'API请求'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-white text-sm">{log.message}</td>
+                            <td className="px-4 py-3 text-dark-400 text-sm max-w-xs truncate">{log.details || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -165,10 +165,53 @@ def init_db():
         c.execute("INSERT INTO domains (id, domain, is_default, created_at) VALUES (?, ?, 1, ?)",
                   (default_id, DOMAIN, datetime.now().isoformat()))
     
+    # System logs table
+    c.execute('''CREATE TABLE IF NOT EXISTS system_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details TEXT,
+        created_at TEXT NOT NULL
+    )''')
+    
     conn.commit()
     conn.close()
 
 init_db()
+
+# Log Event Types
+class LogEventType(str, Enum):
+    MAILBOX_CREATED = "mailbox_created"
+    MAILBOX_DELETED = "mailbox_deleted"
+    MAILBOX_EXPIRED = "mailbox_expired"
+    EMAIL_RECEIVED = "email_received"
+    DOMAIN_ADDED = "domain_added"
+    DOMAIN_DELETED = "domain_deleted"
+    DNS_CONFIGURED = "dns_configured"
+    API_REQUEST = "api_request"
+    ERROR = "error"
+
+# Log helper function
+def add_log(event_type: str, message: str, details: str = None):
+    try:
+        conn = sqlite3.connect(DATABASE_URL)
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO system_logs (event_type, message, details, created_at) VALUES (?, ?, ?, ?)",
+            (event_type, message, details, datetime.now().isoformat())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Failed to add log: {e}")
+
+# Log API model
+class LogResponse(BaseModel):
+    id: int
+    event_type: str
+    message: str
+    details: Optional[str] = None
+    created_at: str
 
 # Models
 class DomainCreate(BaseModel):
@@ -258,6 +301,13 @@ def create_domain(domain: DomainCreate, auth: bool = Depends(verify_api_key)):
         # Auto-configure DNS if Cloudflare is configured
         dns_config = auto_configure_dns(domain.domain)
         
+        # Log the domain addition
+        add_log(
+            LogEventType.DOMAIN_ADDED,
+            f"Domain added: {domain.domain}",
+            f"DNS configured: {dns_config.get('configured', False)}"
+        )
+        
         return DomainResponse(
             id=domain_id,
             domain=domain.domain,
@@ -299,7 +349,16 @@ def delete_domain(domain_id: str, auth: bool = Depends(verify_api_key)):
     
     c.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
     conn.commit()
+    
+    # Get domain name before closing
+    c.execute("SELECT domain FROM domains WHERE id = ?", (domain_id,))
+    domain_result = c.fetchone()
+    domain_name = domain_result[0] if domain_result else domain_id
+    
     conn.close()
+    
+    # Log the deletion
+    add_log(LogEventType.DOMAIN_DELETED, f"Domain deleted: {domain_name}")
     
     return {"message": "Domain deleted"}
 
@@ -383,6 +442,13 @@ def create_mailbox(mailbox: MailboxCreate, auth: bool = Depends(verify_api_key))
     conn.commit()
     conn.close()
     
+    # Log the mailbox creation
+    add_log(
+        LogEventType.MAILBOX_CREATED,
+        f"Mailbox created: {full_address}",
+        f"Domain: {domain}, Selection mode: {mailbox.domain_selection.value if mailbox.domain_selection else 'default'}"
+    )
+    
     return MailboxResponse(
         address=full_address,
         domain=domain,
@@ -462,6 +528,9 @@ def delete_mailbox(address: str, auth: bool = Depends(verify_api_key)):
     conn.commit()
     conn.close()
     
+    # Log the deletion
+    add_log(LogEventType.MAILBOX_DELETED, f"Mailbox deleted: {address}")
+    
     # Delete email file
     email_file = os.path.join(MAIL_STORAGE_PATH, f"{address.replace('@', '_at_')}.json")
     if os.path.exists(email_file):
@@ -518,6 +587,33 @@ def setup_cloudflare_dns(config: CloudflareSetup, auth: bool = Depends(verify_ap
         "message": "DNS records created",
         "records": records
     }
+
+@app.get("/api/logs", response_model=List[LogResponse])
+def get_logs(limit: int = 100, event_type: str = None, auth: bool = Depends(verify_api_key)):
+    conn = sqlite3.connect(DATABASE_URL)
+    c = conn.cursor()
+    
+    if event_type:
+        c.execute(
+            "SELECT id, event_type, message, details, created_at FROM system_logs WHERE event_type = ? ORDER BY id DESC LIMIT ?",
+            (event_type, limit)
+        )
+    else:
+        c.execute(
+            "SELECT id, event_type, message, details, created_at FROM system_logs ORDER BY id DESC LIMIT ?",
+            (limit,)
+        )
+    
+    logs = c.fetchall()
+    conn.close()
+    
+    return [LogResponse(
+        id=log[0],
+        event_type=log[1],
+        message=log[2],
+        details=log[3],
+        created_at=log[4]
+    ) for log in logs]
 
 @app.get("/api/health")
 def health_check():
