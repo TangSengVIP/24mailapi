@@ -53,7 +53,7 @@ services:
     ports:
       - "8080:80"
     environment:
-      - VITE_API_URL=http://api.mail.iplc.tv
+      - VITE_API_URL=https://api.mail.iplc.tv/api
       - VITE_DEFAULT_DOMAIN=${DOMAIN}
     depends_on:
       - api
